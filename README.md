@@ -1,6 +1,6 @@
 # speedyapi
 
-An easy to use Python module for creating Restful API.
+An easy-to-use Python module for creating API.
 
 Built on `Flask` / `Async Flask` with features for easily creating API endpoints
 
@@ -8,7 +8,7 @@ Features:
 - Parameter Parsing and Checking
 - API Authentication
 - Rate Limiting (user, address, global)
-- In depth Endpoint Testing (Write tests to be ran to confirm endpoints act as intended)
+- In-depth Endpoint Testing (Write tests to be run that confirm endpoints act as intended)
 - Automatic OpenAPI `swagger.json` Generation (with access to full specification)
 - Common JSON Response Formatting
 
