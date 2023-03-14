@@ -1,2 +1,2 @@
 # speedyapi
-Easily create REST APIs
+Easily Create REST API
