@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speedyapi"
+version = "1.0.3"
+authors = [
+  { name="CodingYuno"},
+]
+description = "An easy to use Python module for creating API."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = [
+    "flask>=2.2",
+    "requests>=2.9.2",
+    "pygments"
+]
+
+[project.urls]
+"Source Code" = "https://github.com/CodingYuno/speedyapi/"
+"Issue Tracker" = "https://github.com/CodingYuno/speedyapi/issues/"
+
+[project.optional-dependencies]
+async = ["flask[async]"]
+
+[tool.setuptools.packages.find]
+include = ["speedyapi", "speedyapi.*"]
