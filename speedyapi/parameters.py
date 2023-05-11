@@ -105,9 +105,9 @@ class CookieParameter(Parameter):
 class JsonBodyParameter(Parameter):
     """
     A Parameter object used for creating endpoint inputs that are provided via request body
-    
+
     This only supports json format payloads.
-    
+
         (Due to this not being a standard part of the OpenAPI specification or Redoc I add these as query parameters to swagger.json)
 
     :param name: The name of the parameter
@@ -145,13 +145,15 @@ def get_request_inputs(parameter: Parameter, **kwargs) -> dict:
 
 def test_parameter_type(parameter_object):
     """ Check the parameter is an allowed type. """
-    if type(parameter_object) not in [PathParameter, QueryParameter, HeaderParameter, CookieParameter, JsonBodyParameter]:
+    if type(parameter_object) not in [PathParameter, QueryParameter, HeaderParameter, CookieParameter,
+                                      JsonBodyParameter]:
         raise TypeError("All arguments must be of type Parameter!")
 
 
 def input_handler(parameter: Parameter, **kwargs) -> dict | Response:
     request_inputs, parsed_inputs = get_request_inputs(parameter, **kwargs), {}
-    if (input_value := request_inputs.get(parameter.name, None)) is not None:  # Check if the parameter was provided with the request
+    if (input_value := request_inputs.get(parameter.name,
+                                          None)) is not None:  # Check if the parameter was provided with the request
         try:
             parameter.type(input_value)  # Check the type of the provided value
         except ValueError:
@@ -162,11 +164,17 @@ def input_handler(parameter: Parameter, **kwargs) -> dict | Response:
         if parameter.options is not None:  # If options were limits check that the value is allowed
             if input_value not in parameter.options:
                 return malformed(malformed_item=parameter.name)
+        if parameter.type == Boolean:
+            input_value = True if input_value.lower() == "true" else False
         if parameter.type != String:
             try:
-                parsed_inputs[parameter.name] = ast.literal_eval(input_value)  # Attempt to convert to desired python type (literal_eval is safe to use do not worry)
+                parsed_inputs[parameter.name] = ast.literal_eval(
+                    input_value)  # Attempt to convert to desired python type (literal_eval is safe to use do not worry)
             except (ValueError, SyntaxError):
-                parsed_inputs[parameter.name] = input_value  # Value remains as a string to be parsed by the user in the request function context
+                parsed_inputs[
+                    parameter.name] = input_value  # Value remains as a string to be parsed by the user in the request function context
+        else:
+            parsed_inputs[parameter.name] = input_value
     elif parameter.required:  # Handle failure to provide required parameter with standard `missing` response
         return missing(missing_field=parameter.name)
     else:
