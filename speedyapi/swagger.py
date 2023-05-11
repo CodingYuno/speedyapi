@@ -89,7 +89,7 @@ class Map(dict):
         return obj
 
 
-def redoc_html(title: str, server: str):
+def redoc_html(title: str, server: str, swagger_file: str = "swagger.json"):
     """
     :param title: The title of the page tab in browsers
     :param server: The server of the api to request the swagger.json from
@@ -114,7 +114,7 @@ def redoc_html(title: str, server: str):
     </style>
   </head>
   <body>
-    <redoc spec-url="{server}swagger.json"></redoc>
+    <redoc spec-url="{server}{swagger_file}"></redoc>
     <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
   </body>
 </html>"""
@@ -156,6 +156,7 @@ def recursive_generation_of_json_response_schema(obj):
         for key, sub_obj in obj.items():
             schema["properties"][key] = recursive_generation_of_json_response_schema(sub_obj)  # Recursion
     elif type == "array":
-        schema["items"] = recursive_generation_of_json_response_schema(obj[0])  # Recursion (Limits to the first object)
+        if len(obj):
+            schema["items"] = recursive_generation_of_json_response_schema(obj[0])  # Recursion (Limits to the first object)
 
     return schema
