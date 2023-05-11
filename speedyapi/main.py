@@ -126,10 +126,10 @@ class API(Flask):
             return invalid(key="cause", data=f"Unknown endpoint: /{path}", success=False)
 
         # Added to automatically handle favicon.ico
-        @self.endpoint(path=f"/{path_to_favicon}", docs_ignore=True)
+        @self.endpoint(path=f"/favicon.ico", docs_ignore=True)
         def favicon():
             try:
-                return send_file('favicon.ico', mimetype='image/vnd.microsoft.icon')
+                return send_file(path_to_favicon, mimetype='image/vnd.microsoft.icon')
             except FileNotFoundError:
                 return error(cause="FileNotFoundError")
 
@@ -140,14 +140,14 @@ class API(Flask):
             async def after_request(response):
                 if self.request_logging:
                     api_logging(response)
-                    await self.logger(response)
+                    await logger(response)
                 return response
         elif callable(logger):  # Sync
             @self.after_request
             async def after_request(response):
                 if self.request_logging:
                     api_logging(response)
-                    await self.logger(response)
+                    await logger(response)
                 return response
         elif type(logger) == str:  # Log to file
             @self.after_request
@@ -167,7 +167,7 @@ class API(Flask):
         async def docs():
             return html(redoc_html(info.title, server=request.host_url))
 
-    def endpoint(self, path: str, method: str = "GET", authentication=None, name: str = None, description: str = None, docs_ignore: bool = False):
+    def endpoint(self, path: str, method: str = "GET", authentication: str | list = None, name: str = None, description: str = None, docs_ignore: bool = False, group: str = None):
         """
         Creation of endpoints for the API
 
@@ -218,7 +218,9 @@ class API(Flask):
                         auth_type = None
                         if apikey is None and self.async_auth_function_require_key:
                             return missing("key")  # If an apikey is required a missing key response is sent
-                        if self.async_auth_function and (auth_type := await self.async_auth_function()) is None:
+                        if self.async_auth_function and (auth_type := await self.async_auth_function()) not in authentication:
+                            if type(auth_type) == Response:
+                                return auth_type
                             return forbidden(cause="Access is forbidden, usually due to an invalid API key being used.")  # Standard 403 response (You can return your own custom response anywhere in the request context)
                         if type(auth_type) == Response:
                             return auth_type
@@ -241,7 +243,9 @@ class API(Flask):
                         auth_type = None
                         if apikey is None and self.auth_function_require_key:
                             return missing("key")
-                        if self.auth_function and (auth_type := self.auth_function()) is None:
+                        if self.auth_function and (auth_type := self.auth_function()) not in authentication:
+                            if type(auth_type) == Response:
+                                return auth_type
                             return forbidden(cause="Access is forbidden, usually due to an invalid API key being used.")
                         if type(auth_type) == Response:
                             return auth_type
@@ -253,6 +257,8 @@ class API(Flask):
                     return response
 
                 return decorated_function
+
+        authentication = [authentication] if type(authentication) == str else authentication
 
         method = [method] if type(method) == str else method  # methods are placed in lists here as from this point onwards support for multiple methods is supported (Not yet supported throughout)
         if any(m.upper() not in ["GET", "POST", "HEAD", "PUT", "DELETE", "PATCH"] for m in method):
@@ -268,6 +274,7 @@ class API(Flask):
                 self.swagger["paths"][path] = PathItemObject()  # New path added to the OpenAPI Paths object
             for meth in method:
                 self.swagger["paths"][path][meth.lower()] = OperationObject(
+                    tags=[group] if group else None,
                     summary=name,
                     description=description,
                     security=[],
@@ -277,8 +284,8 @@ class API(Flask):
                 # Adding authentication to the Operation Object (If you are using more complex authentication please add to `.swagger` inside your application file)
                 if authentication is not None:
                     self.swagger["paths"][path][meth.lower()]["security"] = [SecurityRequirementObject(
-                        Apikey=[authentication],
-                        key=[authentication]
+                        Apikey=authentication,
+                        key=authentication
                     )]
 
         return decorator
@@ -322,7 +329,7 @@ class API(Flask):
                 self.auth_function_require_key = apikey_required
 
             # Add the security definition to the Swagger info object description to be accessed by Redoc
-            self.swagger.info.description += "\n\n<!-- ReDoc-Inject: <security-definitions> -->"
+            self.swagger.info.description += "\n\n# Authentication\n\n<!-- ReDoc-Inject: <security-definitions> -->"
 
             if apikey_required:
                 # If an apikey is being used standard apikey schemes are added to the security component of the swagger
@@ -421,7 +428,6 @@ class API(Flask):
                             kwargs = kwargs | parsed_inputs  # Add the newly parsed input parameters to kwargs
                     return await f(**kwargs)
 
-                return async_decorated_function
             else:  # Endpoint using Standard Flask (not async)
                 @functools.wraps(f)
                 def decorated_function(**kwargs):
@@ -435,42 +441,46 @@ class API(Flask):
                             kwargs = kwargs | parsed_inputs
                     return f(**kwargs)
 
+
             # We need to know the path and method of the endpoint from a higher up decorator so ast + inspect are used to visit the source
             path = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["path"]
             method = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["method"]
 
             # Each method for the endpoint needs to have parameters automatically added to its swagger.json
-            for meth, meth_obj in self.swagger["paths"][path].copy().items():
-                if meth.lower() != method.lower():  # The method is not from this endpoint so is ignored
-                    continue
+            if path in self.swagger["paths"]:
+                for meth, meth_obj in self.swagger["paths"][path].copy().items():
+                    if meth.lower() != method.lower():  # The method is not from this endpoint so is ignored
+                        continue
 
-                meth_obj["parameters"] = []
-                for parameter_object in args:
+                    meth_obj["parameters"] = []
+                    for parameter_object in args:
 
-                    # This is not a part of the specification however I like to show options in bold at the bottom of the description string
-                    option_string = "" if parameter_object.options is None else f"\n\n**Options**: {', '.join(parameter_object.options)}"
+                        # This is not a part of the specification however I like to show options in bold at the bottom of the description string
+                        option_string = "" if parameter_object.options is None else f"\n\n**Options**: {', '.join(parameter_object.options)}"
 
-                    # JsonBodyParameter edge case is added to the parameter name (Warning this is not allowed in the OpenAPI specification)
-                    name_string = parameter_object.name if type(parameter_object) != JsonBodyParameter else f"Json Body: {{'{parameter_object.name}': <{parameter_object.type.__name__}>}}"
+                        # JsonBodyParameter edge case is added to the parameter name (Warning this is not allowed in the OpenAPI specification)
+                        name_string = parameter_object.name if type(parameter_object) != JsonBodyParameter else f"Json Body: {{'{parameter_object.name}': <{parameter_object.type.__name__}>}}"
+                        if type(parameter_object) == JsonBodyParameter:  # No longer requires separate Parameter Object creation (Will be removed)
+                            meth_obj["parameters"].append(ParameterObject(
+                                name=name_string,
+                                description=parameter_object.description + option_string,
+                                _in=convert_param_to_in(parameter_object),
+                                schema={"type": parameter_object.type.__name__},
+                                required=parameter_object.required
+                            ))
+                        else:
+                            meth_obj["parameters"].append(ParameterObject(
+                                name=name_string,
+                                description=parameter_object.description + option_string,
+                                _in=convert_param_to_in(parameter_object),
+                                schema={"type": parameter_object.type.__name__},  # The name of the OpenAPI parameter object type is found
+                                required=parameter_object.required
+                            ))
 
-                    if type(parameter_object) == JsonBodyParameter:  # No longer requires separate Parameter Object creation (Will be removed)
-                        meth_obj["parameters"].append(ParameterObject(
-                            name=name_string,
-                            description=parameter_object.description + option_string,
-                            _in=convert_param_to_in(parameter_object),
-                            schema={"type": parameter_object.type.__name__},
-                            required=parameter_object.required
-                        ))
-                    else:
-                        meth_obj["parameters"].append(ParameterObject(
-                            name=name_string,
-                            description=parameter_object.description + option_string,
-                            _in=convert_param_to_in(parameter_object),
-                            schema={"type": parameter_object.type.__name__},  # The name of the OpenAPI parameter object type is found
-                            required=parameter_object.required
-                        ))
-
-            return decorated_function
+            if inspect.iscoroutinefunction(f):
+                return async_decorated_function
+            else:
+                return decorated_function
         return decorator
 
     def limits(self, user_limits: list = None, ip_limits: list = None, global_limits: list = None):
@@ -524,6 +534,18 @@ class API(Flask):
         If you do wish to reveal the rate limit then just add it to the authentication description.
         """
         def decorator(f):
+
+            # We need to know the path and method of the endpoint from a higher up decorator so ast + inspect are used to visit the source
+            path = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["path"]
+            method = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["method"]
+
+            # Rate limit locations are created for the endpoint
+            self.rate_limits["paths"].setdefault(path, {})[method] = dict(
+                user_limits={},
+                ip_limits={},
+                global_limits={}
+            )
+
             if inspect.iscoroutinefunction(f):  # Endpoint using Async Flask
                 @functools.wraps(f)
                 async def async_decorated_function(**kwargs):
@@ -565,18 +587,8 @@ class API(Flask):
 
                     return f(**kwargs)
 
-            # We need to know the path and method of the endpoint from a higher up decorator so ast + inspect are used to visit the source
-            path = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["path"]
-            method = get_decorators_args(f, is_async=inspect.iscoroutinefunction(f))[f.__name__]["endpoint"]["kwargs"]["method"]
+                return decorated_function
 
-            # Rate limit locations are created for the endpoint
-            self.rate_limits["paths"].setdefault(path, {})[method] = dict(
-                user_limits={},
-                ip_limits={},
-                global_limits={}
-            )
-
-            return decorated_function
         return decorator
 
     def tests(self, *args: Test):
@@ -644,7 +656,7 @@ class API(Flask):
 
         return decorator
 
-    def run(self, host: str = None, port: int = None, tests: bool = False, swagger: str = None,
+    def run(self, host: str = None, port: int = None, tests: bool = False, swagger: str = None, print_test_responses: bool = False,
             threaded: bool = False, debug: bool = None, load_dotenv: bool = True, **kwargs):
         """
         Runs the application on a local development server.
@@ -675,26 +687,27 @@ class API(Flask):
         def test_thread(path, method, test):
             """ Thread for each endpoint test """
             nonlocal success_count, failed_count
-            test_response, test_success_count, test_failed_count = test.run(method=method, port=port)  # Run the test
+            test_response, test_success_count, test_failed_count = test.run(method=method, port=port, print_test_responses=print_test_responses)  # Run the test
             success_count += test_success_count
             failed_count += test_failed_count
-            response = self.swagger.paths[path][method].responses
+            if path in self.swagger.paths:
+                response = self.swagger.paths[path][method].responses
 
-            # Update the swagger.json to add the new Response Object based on the ran test
-            response[str(test_response.status_code)] = ResponseObject(
-                description=responses[test_response.status_code] or "",
-                content=Map()
-            )
+                # Update the swagger.json to add the new Response Object based on the ran test
+                response[str(test_response.status_code)] = ResponseObject(
+                    description=responses[test_response.status_code] or "",
+                    content=Map()
+                )
 
-            # Add schema to the Response Object using recursive generation
-            content = response[str(test_response.status_code)].content
-            content["application/json"] = MediaTypeObject(
-                schema=recursive_generation_of_json_response_schema(test_response.json())
-            )
+                # Add schema to the Response Object using recursive generation
+                content = response[str(test_response.status_code)].content
+                content["application/json"] = MediaTypeObject(
+                    schema=recursive_generation_of_json_response_schema(test_response.json())
+                )
 
-            # If an example is to be added it is set here (May be deprecated in future versions of the OpenAPI specification)
-            if test.example:
-                content["application/json"].schema["example"] = test_response
+                # If an example is to be added it is set here (May be deprecated in future versions of the OpenAPI specification)
+                if test.example:
+                    content["application/json"].schema["example"] = test_response
 
         color_print("-" * 90, color="white")
 
@@ -705,7 +718,6 @@ class API(Flask):
             success_count, failed_count = 0, 0
 
             test_threads = set()
-
             for path, methods in self.endpoint_tests.items():
                 for method, tests in methods.items():
                     for test in tests:
