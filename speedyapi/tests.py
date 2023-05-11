@@ -8,7 +8,7 @@ from .logging import log_color
 
 
 class Test:
-    def __init__(self, url: str = None, headers: dict = None, cookies: dict = None, timeout: int = 25,
+    def __init__(self, url: str = None, headers: dict = None, cookies: dict = None, timeout: int = 60,
                  json: str | dict | list | int | float = None, expected_status_code: int = 200, checks: list = None,
                  example: bool = None):
         """
@@ -47,7 +47,7 @@ class Test:
         else:
             self.example = example
 
-    def print_test_response(self, response: requests.Response, success: bool, message: str, elapsed: int | float) -> None:
+    def print_test_response(self, response: requests.Response, success: bool, message: str, elapsed: int | float, print_test_responses: bool = False) -> None:
         """
         Prints a log for a successful status code test
 
@@ -58,9 +58,9 @@ class Test:
         """
         signal_color = 'green' if success else 'red'
         color_print(f" {Color('*', color=signal_color)}  Test on path `{Color(self.url.split('?')[0], f'- - {response.request.method}', color='white')}` "
-                    f"{message} [Time: {clean_time(elapsed)}] - - {Color(response.text, color=signal_color)}", color="white")
+                    f"{message} [Time: {clean_time(elapsed)}] - - {Color(response.text, color=signal_color) if print_test_responses or not success else ''}", color="white")
 
-    def run(self, method: str, port: int) -> tuple:
+    def run(self, method: str, port: int, print_test_responses: bool = False) -> tuple:
         """
         Execute the test.
 
@@ -74,7 +74,18 @@ class Test:
         t0, success_count, failed_count = time.time(), 0, 0
         url = f"http://localhost:{port}{self.url}" if self.url[0] == "/" else f"http://localhost/{self.url}"
         requests_func = eval(f"requests.{method.lower()}")  # Select the correct method from the requests library
-        response = requests_func(url=url, headers=self.headers, cookies=self.cookies, json=self.json or {}, timeout=self.timeout)
+        try:
+            response = requests_func(url=url, headers=self.headers, cookies=self.cookies, json=self.json or {}, timeout=self.timeout)
+        except Exception as e:
+            self.print_test_response(
+                response=None,
+                success=False,
+                message=f"returned incorrect status code {Color(repr(e), color=log_color(500))} expecting "
+                        f"{Color(self.expected_status_code, color=log_color(self.expected_status_code))}",
+                elapsed=round(time.time() - t0, 2),
+                print_test_responses=print_test_responses
+            )
+            return None, 0, 1 + len(self.checks)
         elapsed, status_code = round(time.time() - t0, 2), response.status_code
         if status_code != self.expected_status_code:  # Incorrect status code
             self.print_test_response(
@@ -82,7 +93,8 @@ class Test:
                 success=False,
                 message=f"returned incorrect status code {Color(status_code, color=log_color(status_code))} expecting "
                         f"{Color(self.expected_status_code, color=log_color(self.expected_status_code))}",
-                elapsed=elapsed
+                elapsed=elapsed,
+                print_test_responses=print_test_responses
             )
             failed_count += 1
         else:  # Correct status code
@@ -90,7 +102,8 @@ class Test:
                 response=response,
                 success=True,
                 message=f"returned correct status code {Color(response.status_code, color=log_color(response.status_code))}",
-                elapsed=elapsed
+                elapsed=elapsed,
+                print_test_responses=print_test_responses
             )
             success_count += 1
         for check in self.checks or []:  # Run further tests on the response
@@ -100,7 +113,8 @@ class Test:
                         response=response,
                         success=True,
                         message=f"{Color('Success', color='green')}",
-                        elapsed=elapsed
+                        elapsed=elapsed,
+                        print_test_responses=print_test_responses
                     )
                     success_count += 1
                 else:  # Test Failed
@@ -108,7 +122,8 @@ class Test:
                         response=response,
                         success=False,
                         message=f"{Color('Failed', color='red')}",
-                        elapsed=elapsed
+                        elapsed=elapsed,
+                        print_test_responses=print_test_responses
                     )
                     failed_count += 1
             except Exception as error:  # Exception thrown during test
@@ -116,7 +131,8 @@ class Test:
                     response=response,
                     success=False,
                     message=f"{Color(f'Failed with exception: {error}', color='darkred')}",
-                    elapsed=elapsed
+                    elapsed=elapsed,
+                    print_test_responses=print_test_responses
                 )
                 failed_count += 1
         return response, success_count, failed_count
