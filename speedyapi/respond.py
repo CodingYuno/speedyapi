@@ -4,7 +4,7 @@ from typing import Any
 from pygments import highlight
 from pygments.lexers import PythonLexer
 from pygments.formatters import HtmlFormatter
-from flask import redirect, send_file, Response
+from flask import redirect as redi, send_file, Response
 
 
 def json(data: dict | list | tuple | str | int | float | bool | None, status_code: int = 200, success_key: bool = True) -> Response:
@@ -106,11 +106,11 @@ def image(path_or_file: str, attachment: bool = False) -> send_file:
     )
 
 
-def redirect(redirect_url: str) -> redirect:
+def redirect(redirect_url: str) -> redi:
     """
     :param redirect_url: url to redirect user to
     """
-    return redirect(redirect_url, code=302)
+    return redi(redirect_url)
 
 
 def malformed(malformed_item: Any) -> Response:
